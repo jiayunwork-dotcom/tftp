@@ -72,15 +72,34 @@ func (c *Client) RequestTSize(s bool) {
 	c.tsize = s
 }
 
+// SetWindowsize sets the windowsize option (RFC 7440) requested by the
+// client: a number of DATA blocks the sender may transmit in a single
+// burst without waiting for an acknowledgement.
+// Values outside of the 1..65535 range disable the option; when it is
+// disabled the client behaves as if SetWindowsize was never called.
+func (c *Client) SetWindowsize(n int) {
+	c.windowsize = n
+}
+
 // Client stores data about a single TFTP client
 type Client struct {
-	addr      *net.UDPAddr
-	timeout   time.Duration
-	retries   int
-	backoff   backoffFunc
-	blksize   int
-	tsize     bool
-	localAddr *net.UDPAddr
+	addr       *net.UDPAddr
+	timeout    time.Duration
+	retries    int
+	backoff    backoffFunc
+	blksize    int
+	tsize      bool
+	windowsize int
+	localAddr  *net.UDPAddr
+}
+
+// requestedWindowsize returns the configured windowsize when it is a
+// valid RFC 7440 value, and 0 (option disabled) otherwise.
+func (c *Client) requestedWindowsize() int {
+	if c.windowsize >= 1 && c.windowsize <= 65535 {
+		return c.windowsize
+	}
+	return 0
 }
 
 // Send starts outgoing file transmission. It returns io.ReaderFrom or error.
@@ -105,9 +124,15 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 		addr:    c.addr,
 		mode:    mode,
 	}
-	if c.blksize != 0 {
+	if win := c.requestedWindowsize(); c.blksize != 0 || win > 0 {
 		s.opts = make(options)
-		s.opts["blksize"] = strconv.Itoa(c.blksize)
+		if c.blksize != 0 {
+			s.opts["blksize"] = strconv.Itoa(c.blksize)
+		}
+		if win > 0 {
+			s.opts["windowsize"] = strconv.Itoa(win)
+			s.reqWinSize = win
+		}
 	}
 	n := packRQ(s.send, opWRQ, filename, mode, s.opts)
 	addr, err := s.sendWithRetry(n)
@@ -147,7 +172,8 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 		block:    1,
 		mode:     mode,
 	}
-	if c.blksize != 0 || c.tsize {
+	win := c.requestedWindowsize()
+	if c.blksize != 0 || c.tsize || win > 0 {
 		r.opts = make(options)
 	}
 	if c.blksize != 0 {
@@ -157,6 +183,10 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	}
 	if c.tsize {
 		r.opts["tsize"] = "0"
+	}
+	if win > 0 {
+		r.opts["windowsize"] = strconv.Itoa(win)
+		r.reqWinSize = win
 	}
 	n := packRQ(r.send, opRRQ, filename, mode, r.opts)
 	l, addr, err := r.receiveWithRetry(n)

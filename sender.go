@@ -46,6 +46,9 @@ type sender struct {
 	maxBlockLen    int
 	mode           string
 	opts           options
+	maxWinSize     int /* RFC 7440: local window cap (server side); 0 = disabled */
+	winSize        int /* RFC 7440: negotiated window; 0/1 = stop-and-wait */
+	reqWinSize     int /* RFC 7440: window requested by the client */
 	hook           Hook
 	startTime      time.Time
 	datagramsSent  int
@@ -105,6 +108,9 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 	if s.sendA.enabled { /* senderAnticipate */
 		return readFromAnticipate(s, r)
 	}
+	if s.winSize > 1 { /* RFC 7440 windowsize */
+		return s.readFromWindow(r)
+	}
 	s.block = 1 // start data transmission with block 1
 	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
 	for {
@@ -157,6 +163,16 @@ func (s *sender) sendOptions() error {
 				delete(s.opts, name)
 				continue
 			}
+		} else if name == "windowsize" {
+			n, ok := negotiateWindowsize(value, s.maxWinSize)
+			if !ok {
+				// Disabled locally or invalid value: behave as if
+				// the option was never present.
+				delete(s.opts, name)
+				continue
+			}
+			s.opts["windowsize"] = strconv.Itoa(n)
+			s.winSize = n
 		} else {
 			delete(s.opts, name)
 		}
@@ -249,6 +265,18 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 					err := s.setBlockSize(value)
 					if err != nil {
 						continue
+					}
+				} else if name == "windowsize" {
+					if s.reqWinSize > 0 {
+						n, ok := parseWindowsize(value)
+						if !ok || n > s.reqWinSize {
+							err := fmt.Errorf(
+								"windowsize option negotiation failed: got %q, want 1..%d",
+								value, s.reqWinSize)
+							s.abort(err)
+							return addr, err
+						}
+						s.winSize = n
 					}
 				}
 			}

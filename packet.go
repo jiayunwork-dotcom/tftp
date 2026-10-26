@@ -24,7 +24,8 @@ type options map[string]string
 
 // RRQ/WRQ packet
 //
-//  2 bytes     string    1 byte    string    1 byte
+//	2 bytes     string    1 byte    string    1 byte
+//
 // --------------------------------------------------
 // | Opcode |  Filename  |   0  |    Mode    |   0  |
 // --------------------------------------------------
@@ -101,7 +102,8 @@ func unpackOACK(p []byte) (opts options, err error) {
 
 // ERROR packet
 //
-//  2 bytes     2 bytes      string    1 byte
+//	2 bytes     2 bytes      string    1 byte
+//
 // ------------------------------------------
 // | Opcode |  ErrorCode |   ErrMsg   |  0  |
 // ------------------------------------------
@@ -125,7 +127,8 @@ func (p pERROR) message() string {
 
 // DATA packet
 //
-//  2 bytes    2 bytes     n bytes
+//	2 bytes    2 bytes     n bytes
+//
 // ----------------------------------
 // | Opcode |   Block #  |   Data   |
 // ----------------------------------
@@ -137,7 +140,8 @@ func (p pDATA) block() uint16 {
 
 // ACK packet
 //
-//  2 bytes    2 bytes
+//	2 bytes    2 bytes
+//
 // -----------------------
 // | Opcode |   Block #  |
 // -----------------------

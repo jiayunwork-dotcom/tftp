@@ -60,6 +60,7 @@ type Server struct {
 	smartBlock   bool
 	sendAEnable  bool /* senderAnticipate enable by server */
 	sendAWinSz   uint
+	windowsize   int /* RFC 7440: maximum window accepted by the server; 0 = disabled */
 	// Single port fields
 	singlePort        bool
 	handlers          map[string]chan []byte
@@ -105,6 +106,23 @@ func (s *Server) SetAnticipate(winsz uint) {
 	} else {
 		s.sendAEnable = false
 		s.sendAWinSz = 1
+	}
+}
+
+// SetWindowsize enables the RFC 7440 windowsize option on the server
+// and sets the maximum window size the server accepts in read and
+// write requests. The negotiated window is the smaller of the value
+// requested by the client and n.
+// Values outside of the 1..65535 range disable the option; when it is
+// disabled the server ignores windowsize in requests, as if it was
+// never enabled. The option is also ignored in single-port mode.
+func (s *Server) SetWindowsize(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n >= 1 && n <= 65535 {
+		s.windowsize = n
+	} else {
+		s.windowsize = 0
 	}
 }
 
@@ -377,6 +395,11 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 	if err != nil {
 		return err
 	}
+	// RFC 7440 windowsize is ignored in single-port mode.
+	maxWinSize := 0
+	if !s.singlePort {
+		maxWinSize = s.windowsize
+	}
 	listenAddr := &net.UDPAddr{IP: localAddr}
 	switch p := p.(type) {
 	case pWRQ:
@@ -395,6 +418,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+			maxWinSize:  maxWinSize,
 			hook:        s.hook,
 			filename:    filename,
 			startTime:   time.Now(),
@@ -448,6 +472,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+			maxWinSize:  maxWinSize,
 			hook:        s.hook,
 			filename:    filename,
 			startTime:   time.Now(),
